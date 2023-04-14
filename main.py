@@ -1,6 +1,3 @@
-# HI I DEF DID MY WORK
-
-
 import os
 import pandas as pd
 import yfinance as yf
