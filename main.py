@@ -222,13 +222,10 @@ def backtest(period):
         stocks = stocks_dow
     elif file_num == 4:
         stocks = [input('\nTicker:  ').upper()]
-
-    if "DIA\n" not in stocks:
-        stocks.insert(0, "DIA\n")
-    if "SPY\n" not in stocks:
-        stocks.insert(0, "SPY\n")
-    if "QQQ\n" not in stocks:
-        stocks.insert(0, "QQQ\n")
+    
+    stocks.insert(0, "DIA\n")
+    stocks.insert(0, "SPY\n")
+    stocks.insert(0, "QQQ\n")
 
     results = pd.DataFrame(columns=['Ticker', 'Trade % Change', 'Stock % Change','End Money', '% Trade Success', 'Total Trades', 'Min Money', 'Max Money'])
 
