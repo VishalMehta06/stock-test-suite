@@ -4,6 +4,7 @@ import yfinance as yf
 import pandas_ta as pta
 import mplfinance as mpf
 import math
+import numpy as np
 
 # --------------------------------------------------------------------------------------
 # VARIABLES
@@ -181,6 +182,15 @@ def analyze(ticker):
     else:
         print('MACD is positive and by a margin of {}%\nBuy new trade and do not sell current trade'.format(round(macd_change, 4)))
         print('\nThe MACD cycle has continued for {} days'.format(macd_days))
+    
+    derivative = (macd['macd'].iloc[[-1]].max() - macd['macd'].iloc[[-2]].max()) / 2
+    print("MACD Derivative:  {}".format(derivative))
+
+    total_derivative = 0
+    for i in range(len(macd)-1):
+        total_derivative += (macd['macd'].iloc[[i+1]].max() - macd['macd'].iloc[[i]].max()) / 2
+    total_derivative /= (len(macd) - 1)
+    print("Yearly Average Derivative:  {}".format(total_derivative))
   
 
 # --------------------------------------------------------------------------------------
