@@ -186,11 +186,14 @@ def analyze(ticker):
     derivative = (macd['macd'].iloc[[-1]].max() - macd['macd'].iloc[[-2]].max()) / 2
     print("MACD Derivative:  {}".format(derivative))
 
-    total_derivative = 0
+    all_derivative = []
     for i in range(len(macd)-1):
-        total_derivative += (macd['macd'].iloc[[i+1]].max() - macd['macd'].iloc[[i]].max()) / 2
-    total_derivative /= (len(macd) - 1)
-    print("Yearly Average Derivative:  {}".format(total_derivative))
+        all_derivative.append((macd['diff'].iloc[[i+1]].max() - macd['diff'].iloc[[i]].max()) / 2)
+    average_derivative = sum(all_derivative) / (len(macd) - 1)
+    print("Yearly Average Derivative:  {}".format(average_derivative))
+
+    derivative_change = (derivative / abs(macd['diff'].iloc[[-1]].max())) * 100
+    print("Growth:  {}".format(derivative_change))
   
 
 # --------------------------------------------------------------------------------------
