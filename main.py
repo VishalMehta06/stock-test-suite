@@ -4,7 +4,6 @@ import yfinance as yf
 import pandas_ta as pta
 import mplfinance as mpf
 import math
-import numpy as np
 
 # --------------------------------------------------------------------------------------
 # VARIABLES
@@ -158,12 +157,24 @@ def analyze(ticker):
     macd['diff'] = macd['macd'] - macd['signal']
     macd['bar_positive'] = macd['diff'].map(lambda x: x if x > 0 else 0)
     macd['bar_negative'] = macd['diff'].map(lambda x: x if x < 0 else 0)
+    all_derivative = [0]
+    for i in range(len(macd) - 1):
+        all_derivative.append((macd['diff'].iloc[[i+1]].max() - macd['diff'].iloc[[i]].max()) / 2)
+    macd['derivative'] = all_derivative
 
     upline = macd['macd'].iloc[[-1]].max()
     downline = macd['signal'].iloc[[-1]].max()
     macd_change = (upline - downline)
     macd_change /= abs(downline)
     macd_change *= 100
+
+    macd_movements = []
+    for i in range(5):
+        macd_movements.append((macd['derivative'].iloc[[-1 - i]].max()/abs(macd['diff'].iloc[[-1 - i]].max()))*100)
+    macd_change_sum = 0
+    for i in range(5):
+        if macd_movements[i] <= 0:
+            macd_change_sum += 1
 
     i = 0
     macd_days = 0
@@ -176,24 +187,21 @@ def analyze(ticker):
     
     if macd['diff'].iloc[[-1]].max() <= 0:
         print('MACD is negative by a margin of {}%\nDo not buy new trade and sell current trade'.format(round(macd_change, 4)))
-    elif macd_change <= 2:
-        print('MACD is positive but by a margin of {}%\nBuy new trade or sell current trade'.format(round(macd_change, 4)))
+        print("MACD Changes:  ")
+        for i in range(5):
+            print("{}:  {}%".format(macd.index[-5 + i], round(macd_movements[i], 3)))
+    elif macd_change_sum == 5:
+        print('MACD is positive by a margin of {}%\nBuy new trade or sell current trade'.format(round(macd_change, 4)))
         print('\nThe MACD cycle has continued for {} days'.format(macd_days))
+        print("MACD Changes:  ")
+        for i in range(5):
+            print("{}:  {}%".format(macd.index[-5 + i], round(macd_movements[i], 3)))
     else:
-        print('MACD is positive and by a margin of {}%\nBuy new trade and do not sell current trade'.format(round(macd_change, 4)))
+        print('MACD is positive by a margin of {}%\nBuy new trade and do not sell current trade'.format(round(macd_change, 4)))
         print('\nThe MACD cycle has continued for {} days'.format(macd_days))
-    
-    derivative = (macd['macd'].iloc[[-1]].max() - macd['macd'].iloc[[-2]].max()) / 2
-    print("MACD Derivative:  {}".format(derivative))
-
-    all_derivative = []
-    for i in range(len(macd)-1):
-        all_derivative.append((macd['diff'].iloc[[i+1]].max() - macd['diff'].iloc[[i]].max()) / 2)
-    average_derivative = sum(all_derivative) / (len(macd) - 1)
-    print("Yearly Average Derivative:  {}".format(average_derivative))
-
-    derivative_change = (derivative / abs(macd['diff'].iloc[[-1]].max())) * 100
-    print("Growth:  {}".format(derivative_change))
+        print("MACD Changes:  ")
+        for i in range(5):
+            print("{}:  {}%".format(macd.index[-5 + i], round(macd_movements[i], 3)))
   
 
 # --------------------------------------------------------------------------------------
@@ -210,15 +218,22 @@ def transaction(macd, stock_df, time):
         sell = False
         while sell == False:
             count +=1
-            upline = macd['macd'].iloc[[time+count]].max()
-            downline = macd['signal'].iloc[[time+count]].max()
-            macd_change = (upline - downline)
-            macd_change /= abs(downline)
-            macd_change *= 100
+            macd_change = []
+            for i in range(5):
+                macd_change.append(macd['derivative'].iloc[[time+count - i]].max()/abs(macd['diff'].iloc[[time+count - i]].max()))
+            
+            macd_change_sum = 0
+            for i in range(5):
+                if macd_change[i] <= 0:
+                    macd_change_sum += 1
+
             if (len(stock_df)-3) < (count+time):
                 price_sell = stock_df['Close'].iloc[count+time].max()
                 sell = True
-            elif macd['diff'].iloc[[time+count]].max() <= 0 or macd_change <= 0.2:
+            elif macd['diff'].iloc[[time+count]].max() <= 0:
+                price_sell = stock_df['Close'].iloc[count+time].max()
+                sell = True
+            elif macd_change_sum == 5:
                 price_sell = stock_df['Close'].iloc[count+time].max()
                 sell = True
 
@@ -257,6 +272,11 @@ def backtest(period):
         macd['diff'] = macd['macd'] - macd['signal']
         macd['bar_positive'] = macd['diff'].map(lambda x: x if x > 0 else 0)
         macd['bar_negative'] = macd['diff'].map(lambda x: x if x < 0 else 0)
+        all_derivative = [0]
+        for i in range(len(macd) - 1):
+            all_derivative.append((macd['diff'].iloc[[i+1]].max() - macd['diff'].iloc[[i]].max()) / 2)
+        macd['derivative'] = all_derivative
+
         while len(macd) != len(df):
             macd.drop(labels=macd.index[0], axis=0, inplace=True)
 
