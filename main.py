@@ -4,6 +4,10 @@ import yfinance as yf
 import pandas_ta as pta
 import mplfinance as mpf
 import math
+import datetime
+from dateutil.relativedelta import relativedelta
+import numpy as np
+import pandas_datareader.data as web
 
 # --------------------------------------------------------------------------------------
 # VARIABLES
@@ -12,6 +16,55 @@ stocks_spy = ['A', 'AAL', 'AAP', 'AAPL', 'ABBV', 'ABC', 'ABT', 'ACGL', 'ACN', 'A
 stocks_prefered = ['AAPL', 'AMD', 'AMZN', 'ANET', 'CASY', 'CMG', 'CNI', 'COST', 'CRWD', 'CSX', 'DIS', 'FHI', 'GOOG', 'GXO', 'HAS', 'HD', 'IBKR', 'KDP', 'KMI', 'KO', 'LUV', 'MA', 'MCD', 'MCK', 'MDLZ', 'META', 'MSFT', 'NFLX', 'NKE', 'NVDA', 'PAYC', 'PG', 'PYPL', 'ROL', 'SBUX', 'SHOP', 'SHW', 'SNOW', 'TSLA', 'TTWO', 'TXRH', 'UNH', 'UPS', 'V', 'VZ', 'WFC', 'WMT', 'WSM', 'WSO', 'XOM', 'XPO']
 # --------------------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------------------
+# Beta Calculations
+def downloadData(ticker):
+    start, end = datetime.datetime.now() - relativedelta(years=5), datetime.datetime.now()
+    data = web.DataReader(ticker, 'yahoo', start, end)
+    data.reset_index(inplace=True)
+    data.set_index("Date", inplace=True)
+    return data
+
+def processBeta(stockData, marketData, year, frequency, adjustment = 0):
+    stockData, marketData = shortenData(stockData, marketData, year)
+    stockData = stockData['Close'].resample(frequency).last().pct_change()
+    marketData = marketData['Close'].resample(frequency).last().pct_change()
+    stockData = stockData[stockData.index.isin(marketData.index)]
+    marketData = marketData[marketData.index.isin(stockData.index)]        
+    beta = calculateBeta(stockData, marketData)
+    return adjustBeta(beta, adjustment)
+
+def shortenData(stockData, marketData, year):
+    if year == 5:
+        return stockData, marketData
+    array1 = stockData.index > datetime.datetime.now() - relativedelta(years=year)
+    array2 = marketData.index > datetime.datetime.now() - relativedelta(years=year)
+    stockData = stockData[[x for x in array1]]
+    marketData = marketData[[x for x in array2]]
+    return stockData, marketData
+
+def calculateBeta(stockData, marketData):
+    covariance = np.cov(stockData[1:], marketData[1:])
+    variance = np.var(marketData[1:])
+    return covariance[0,1] / variance
+
+def adjustBeta(beta, adjustment):
+    for i in range(adjustment):
+        beta = 0.67 * beta + 0.33
+    return beta
+
+def beta(ticker_df, market_df = '^GSPC', adjusted = 0):
+    beta1m5y = processBeta(ticker_df, market_df, 5, '1M', adjusted)
+    beta1m3y = processBeta(ticker_df, market_df, 3, '1M', adjusted)
+    beta1w5y = processBeta(ticker_df, market_df, 5, '1W', adjusted)
+    beta1w3y = processBeta(ticker_df, market_df, 3, '1W', adjusted)
+    beta1w1y = processBeta(ticker_df, market_df, 1, '1W', adjusted)
+    beta1d1y = processBeta(ticker_df, market_df, 1, '1D', adjusted)
+
+    #print(f'''{tickers[i]} Betas:\nMonthly 5 Years {beta1m5y}\nMonthly 3 Years {beta1m3y}\nWeekly 5 Years {beta1w5y}\nWeekly 3 Years {beta1w3y}\nWeekly 1 Year {beta1w1y}\nDaily 1 Year {beta1d1y}''')
+
+    return [beta1m5y, beta1m3y, beta1w5y, beta1w3y, beta1w1y, beta1d1y]
+# --------------------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------------------
 # QUICKFILTER
@@ -42,7 +95,7 @@ def check_quickfilter(stock_df):
     return stock_stat
 
 def filter():
-    print("(1) Prefered Stocks\n(2) S&P500\n(3) Dow Jones Industrial Average\n(4) Enter Single Stock")
+    print("(1) Prefered Stocks\n(2) S&P500\n(3) Dow Jones Industrial Average")
     file_num = int(input(":  "))
     if file_num == 1:
         stocks = stocks_prefered
@@ -50,31 +103,22 @@ def filter():
         stocks = stocks_spy
     elif file_num == 3:
         stocks = stocks_dow
-    elif file_num == 4:
-        stocks = [input('\nTicker:  ').upper()]
 
-    scores = pd.DataFrame(columns=['Ticker', 'Cycle Length'])
-    all_scores = pd.DataFrame(columns=['Ticker', 'MACD', 'Cycle Length'])
+    scores = pd.DataFrame(columns=['Ticker', 'Cycle Length', '5 Year Monthly Beta'])
+    market_df = yf.download('SPY', period='60mo')
     for i in range(len(stocks)):
-        df = yf.download(stocks[i], period='12mo')
+        df = yf.download(stocks[i], period='60mo')
         result = check_quickfilter(df)
         
         if result['status'] == True:
-            scores.loc[len(scores)] = [stocks[i], result['date']]
-            all_scores.loc[i] = [stocks[i], result['status'], result['date']]
+            scores.loc[len(scores)] = [stocks[i], result['date'], beta(df, market_df)[0]]
     scores.sort_values(by='Cycle Length', inplace=True, ignore_index=True)
 
     print("\nRESULTS\n")
-    if len(scores) != 0:
-        print(scores)
-        write_data = input('\nWrite data to results.csv (y/n):  ')
-        if write_data == 'y':
-            scores.to_csv('results.csv')
-    else:
-        print(all_scores)
-        write_data = input('\nWrite data to results.csv (y/n):  ')
-        if write_data == 'y':
-            all_scores.to_csv('results.csv')
+    print(scores)
+    write_data = input('\nWrite data to results.csv (y/n):  ')
+    if write_data == 'y':
+        scores.to_csv('results.csv')
 # --------------------------------------------------------------------------------------
 
 
@@ -148,7 +192,7 @@ def plot(symbol, time):
 # ANALYZE
 
 def analyze(ticker):
-    df = yf.download(ticker, period='12mo')
+    df = yf.download(ticker, period='60mo')
     macd = pd.DataFrame()
     macd['ema_slow'] = df['Close'].ewm(span=12).mean()
     macd['ema_fast'] = df['Close'].ewm(span=26).mean()
@@ -162,12 +206,14 @@ def analyze(ticker):
         all_derivative.append((macd['diff'].iloc[[i+1]].max() - macd['diff'].iloc[[i]].max()) / 2)
     macd['derivative'] = all_derivative
 
+    # MACD Separation
     upline = macd['macd'].iloc[[-1]].max()
     downline = macd['signal'].iloc[[-1]].max()
     macd_change = (upline - downline)
     macd_change /= abs(downline)
     macd_change *= 100
 
+    # MACD Changes
     macd_movements = []
     for i in range(5):
         macd_movements.append((macd['derivative'].iloc[[-1 - i]].max()/abs(macd['diff'].iloc[[-1 - i]].max()))*100)
@@ -176,6 +222,7 @@ def analyze(ticker):
         if macd_movements[i] <= 0:
             macd_change_sum += 1
 
+    # Length of MACD
     i = 0
     macd_days = 0
     while True:
@@ -185,25 +232,29 @@ def analyze(ticker):
         else:
             break
     
+    # BETA Value
+    betas = beta(df, yf.download('SPY', period='60mo'))
+
     if macd['diff'].iloc[[-1]].max() <= 0:
         print('MACD is negative by a margin of {}%\nDo not buy new trade and sell current trade'.format(round(macd_change, 4)))
-        print("MACD Changes:  ")
+        print("\nMACD Changes:  ")
         for i in range(5):
             print("{}:  {}%".format(macd.index[-5 + i], round(macd_movements[i], 3)))
+        print("\nBeta Value:  {}".format(betas[0]))
     elif macd_change_sum == 5:
         print('MACD is positive by a margin of {}%\nBuy new trade or sell current trade'.format(round(macd_change, 4)))
-        print('\nThe MACD cycle has continued for {} days'.format(macd_days))
+        print('\nThe MACD cycle has continued for {} days\n'.format(macd_days))
         print("MACD Changes:  ")
         for i in range(5):
             print("{}:  {}%".format(macd.index[-5 + i], round(macd_movements[i], 3)))
+        print("\nBeta Value:  {}".format(betas[0]))
     else:
         print('MACD is positive by a margin of {}%\nBuy new trade and do not sell current trade'.format(round(macd_change, 4)))
-        print('\nThe MACD cycle has continued for {} days'.format(macd_days))
+        print('\nThe MACD cycle has continued for {} days\n'.format(macd_days))
         print("MACD Changes:  ")
         for i in range(5):
             print("{}:  {}%".format(macd.index[-5 + i], round(macd_movements[i], 3)))
-  
-
+        print("\nBeta Value:  {}".format(betas[0]))
 # --------------------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------------------
@@ -218,22 +269,11 @@ def transaction(macd, stock_df, time):
         sell = False
         while sell == False:
             count +=1
-            macd_change = []
-            for i in range(5):
-                macd_change.append(macd['derivative'].iloc[[time+count - i]].max()/abs(macd['diff'].iloc[[time+count - i]].max()))
-            
-            macd_change_sum = 0
-            for i in range(5):
-                if macd_change[i] <= 0:
-                    macd_change_sum += 1
 
             if (len(stock_df)-3) < (count+time):
                 price_sell = stock_df['Close'].iloc[count+time].max()
                 sell = True
             elif macd['diff'].iloc[[time+count]].max() <= 0:
-                price_sell = stock_df['Close'].iloc[count+time].max()
-                sell = True
-            elif macd_change_sum == 5:
                 price_sell = stock_df['Close'].iloc[count+time].max()
                 sell = True
 
@@ -255,63 +295,65 @@ def backtest(period):
     stocks.insert(0, "SPY\n")
     stocks.insert(0, "QQQ\n")
 
-    results = pd.DataFrame(columns=['Ticker', 'Trade % Change', 'Stock % Change','End Money', '% Trade Success', 'Total Trades', 'Min Money', 'Max Money'])
+    results = pd.DataFrame(columns=['Ticker', 'Trade % Change', 'Stock % Change','End Money', '% Trade Success', 'Total Trades', 'Min Money', 'Max Money', '5 Year Monthly Beta'])
+
+    market_df = yf.download('SPY', period='{}mo'.format(period))
 
     count = 0
     while count < len(stocks):
         stock = stocks[count]
-        df = yf.download(stock, period='{}mo'.format(period))
-        long_df = yf.download(stock, period='{}mo'.format(math.ceil(len(df)/22) + 5))
+        stock_df = yf.download(stock, period='{}mo'.format(period))
+        beta_value = beta(stock_df, market_df)[0]
 
-        # MACD
-        macd = pd.DataFrame()
-        macd['ema_slow'] = long_df['Close'].ewm(span=12).mean()
-        macd['ema_fast'] = long_df['Close'].ewm(span=26).mean()
-        macd['macd'] = macd['ema_slow'] - macd['ema_fast']
-        macd['signal'] = macd['macd'].ewm(span=9).mean()
-        macd['diff'] = macd['macd'] - macd['signal']
-        macd['bar_positive'] = macd['diff'].map(lambda x: x if x > 0 else 0)
-        macd['bar_negative'] = macd['diff'].map(lambda x: x if x < 0 else 0)
-        all_derivative = [0]
-        for i in range(len(macd) - 1):
-            all_derivative.append((macd['diff'].iloc[[i+1]].max() - macd['diff'].iloc[[i]].max()) / 2)
-        macd['derivative'] = all_derivative
-
-        while len(macd) != len(df):
-            macd.drop(labels=macd.index[0], axis=0, inplace=True)
-
-        money = 10000
-        bought = False
-        total_transactions = 0
-        profit_transactions = 0
-        max_value = 10000
-        min_value = 10000
-
-        for i in range(len(df)-2):
-            if bought == True:
-                if i >= stock_transaction[2]:
-                    bought = False
-            else:
-                time = i
-                stock_transaction = transaction(macd, df, time)
-                if stock_transaction[3] == 'Y':
-                    money += money*((stock_transaction[1]-stock_transaction[0]) / stock_transaction[0])
-                    bought = True
-                    total_transactions += 1
-
-                if stock_transaction[1] > stock_transaction[0]:
-                    profit_transactions += 1
-                if money > max_value:
-                    max_value = money
-                if money < min_value:
-                    min_value = money
-
-        if total_transactions != 0:
-            profit_percent = round((profit_transactions / total_transactions)*100, 3)
+        if stock != 'DIA' and beta_value < 1 and file_num != 4:
+            pass
         else:
-            profit_percent = 0
+            long_df = yf.download(stock, period='{}mo'.format(math.ceil(len(stock_df)/22) + 5))
 
-        results.loc[len(results.index)] = [stock.strip("\n"), round(((money-10000)/10000)*100, 3), round(((df['Close'].iloc[[-1]].max() - df['Close'].iloc[[0]].max())/df['Close'].iloc[[0]].max())*100, 3),money, profit_percent, total_transactions, min_value, max_value]
+            # MACD
+            macd = pd.DataFrame()
+            macd['ema_slow'] = long_df['Close'].ewm(span=12).mean()
+            macd['ema_fast'] = long_df['Close'].ewm(span=26).mean()
+            macd['macd'] = macd['ema_slow'] - macd['ema_fast']
+            macd['signal'] = macd['macd'].ewm(span=9).mean()
+            macd['diff'] = macd['macd'] - macd['signal']
+            macd['bar_positive'] = macd['diff'].map(lambda x: x if x > 0 else 0)
+            macd['bar_negative'] = macd['diff'].map(lambda x: x if x < 0 else 0)
+            while len(macd) != len(stock_df):
+                macd.drop(labels=macd.index[0], axis=0, inplace=True)
+
+            money = 10000
+            bought = False
+            total_transactions = 0
+            profit_transactions = 0
+            max_value = 10000
+            min_value = 10000
+
+            for i in range(len(stock_df)-2):
+                if bought == True:
+                    if i >= stock_transaction[2]:
+                        bought = False
+                else:
+                    time = i
+                    stock_transaction = transaction(macd, stock_df, time)
+                    if stock_transaction[3] == 'Y':
+                        money += money*((stock_transaction[1]-stock_transaction[0]) / stock_transaction[0])
+                        bought = True
+                        total_transactions += 1
+
+                    if stock_transaction[1] > stock_transaction[0]:
+                        profit_transactions += 1
+                    if money > max_value:
+                        max_value = money
+                    if money < min_value:
+                        min_value = money
+
+            if total_transactions != 0:
+                profit_percent = round((profit_transactions / total_transactions)*100, 3)
+            else:
+                profit_percent = 0
+
+            results.loc[len(results.index)] = [stock.strip("\n"), round(((money-10000)/10000)*100, 3), round(((stock_df['Close'].iloc[[-1]].max() - stock_df['Close'].iloc[[0]].max())/stock_df['Close'].iloc[[0]].max())*100, 3),money, profit_percent, total_transactions, min_value, max_value, beta_value]
 
         count += 1
     ave_profit = 0
